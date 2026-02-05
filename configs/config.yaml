@@ -1,0 +1,273 @@
+# NeAR Dataset - Kidney Anomaly Detection Project
+
+## Proje Konfigürasyonu
+
+# Dataset ayarları
+dataset:
+  path: "NeAR_dataset/ALAN"
+  csv_file: "info.csv"
+  zip_file: "ALAN.zip"
+  image_size: [128, 128, 128]  # 3D görüntü boyutu
+  channels: 1  # Binary mask (tek kanal)
+  use_processed: true  # İşlenmiş CSV kullan
+  processed_csv: "outputs/processed_data.csv"  # Alternatif: outputs/balanced_data.csv
+  
+  # NaN handling - Eksik veri işleme stratejileri
+  # Not: info.csv dosyasında NaN olması beklenmiyor, gerekirse aktifleştir
+  nan_handling:
+    enabled: false  # Varsayılan: devre dışı (CSV'de sadece 3 kolon var: ROI_id, subset, ROI_anomaly)
+    method: "fill_mean"  # 'remove', 'fill_value', 'fill_mean', 'fill_median', 'fill_mode', 'fill_forward', 'fill_backward'
+    fill_value: 0  # fill_value metodu için
+    columns: null  # Belirli kolonlar (null = tüm kolonlar)
+    report_path: "outputs/nan_report.json"  # Rapor kaydetme yolu
+  
+  # Data splitting - Train/Val/Test bölme stratejileri
+  data_splitting:
+    enabled: true
+    method: "stratified"  # 'simple', 'stratified', 'patient', 'existing'
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+    stratify_column: "ROI_anomaly"  # Stratified split için
+    patient_id_column: "ROI_id"  # Patient-level split için
+    existing_split_column: "subset"  # Existing split için
+    random_state: 42
+    save_splits: true
+    splits_output_dir: "outputs/splits"
+
+# Görüntü işleme ayarları
+preprocessing:
+  # Görüntü yükleme
+  cache_in_memory: false  # Tüm görüntüleri RAM'e yükle (dikkatli!)
+  load_images: true  # Görüntüleri yükle (False ise sadece metadata)
+  
+  # Normalizasyon (Binary mask için gerekli değil - zaten 0/1 değerleri)
+  normalize: false  # Binary mask için false (intensity image varsa true yapın)
+  mean: 0.0    # Binary mask için kullanılmıyor (intensity image için: global ortalama)
+  std: 1.0     # Binary mask için kullanılmıyor (intensity image için: global std)
+  
+  # Augmentasyon
+  augmentation:
+    enabled: true
+    mode: "normal"  # 'light', 'normal', 'heavy'
+    
+    # Transform olasılıkları
+    random_flip:
+      enabled: true
+      p: 0.5
+      axes: [0, 1, 2]
+    
+    random_rotation:
+      enabled: true
+      p: 0.5
+      angle_range: [-15, 15]
+      axes: [0, 1]
+    
+    random_shift:
+      enabled: true
+      p: 0.5
+      max_shift: 10
+    
+    random_zoom:
+      enabled: true
+      p: 0.3
+      zoom_range: [0.9, 1.1]
+    
+    elastic_deformation:
+      enabled: true
+      p: 0.3
+      alpha: 10
+      sigma: 4
+    
+    random_noise:
+      enabled: true
+      p: 0.2
+      noise_std: 0.01
+  
+  # Class balancing - Sınıf dengesizliği yönetimi
+  class_balancing:
+    enabled: false  # Otomatik dengeleme aktif mi?
+    method: "none"  # 'none', 'oversample', 'undersample', 'smote', 'adasyn', 'smote_tomek'
+    target_ratio: 1.0  # Hedef denge oranı (1.0 = mükemmel denge)
+    smote_k_neighbors: 5  # SMOTE için k_neighbors
+    apply_to_minority_only: true  # Sadece azınlık sınıfına mı uygula?
+    save_balanced_data: false  # Dengelenmiş veriyi kaydet?
+    balanced_data_path: "outputs/balanced_data.csv"
+  
+  # Augmentation strategy - Veri arttırma stratejisi
+  augmentation_strategy:
+    auto_adjust: true  # Dataset boyutuna göre otomatik ayarla
+    level: "normal"  # 'light', 'normal', 'heavy', 'medical_kidney'
+    augmentation_factor: 1.0  # Azınlık sınıfı için çarpan (0 = yok, 2.0 = 2x)
+    apply_to_minority_only: true  # Sadece azınlık sınıfına mı?
+  
+  # Medical-specific transforms
+  medical:
+    # Medical intensity normalization
+    intensity_normalization:
+      enabled: false  # Binary mask için false (intensity image varsa true)
+      method: "minmax"  # 'z-score' veya 'minmax'
+      percentile_range: [1.0, 99.0]  # Outlier filtreleme
+      clip_output: true
+    
+    # Adaptive ROI cropping
+    adaptive_crop:
+      enabled: true
+      margin: 10  # ROI etrafında margin (voxel)
+      min_size: 64  # Minimum crop boyutu
+      center_crop: false  # Center'a align et
+    
+    # Binary mask post-processing
+    mask_processing:
+      enabled: true
+      fill_holes: true  # Internal hole'ları doldur
+      min_component_size: 100  # Küçük component'ları kaldır (voxel)
+      morphology: "closing"  # 'none', 'erosion', 'dilation', 'opening', 'closing'
+      structure_size: 2  # Morphological structuring element boyutu
+    
+    # Spacing normalization (DICOM/NIfTI için)
+    spacing_normalization:
+      enabled: false  # .npy format spacing bilgisi yok
+      target_spacing: [1.0, 1.0, 1.0]  # mm cinsinden
+      interpolation_order: 1  # 0: nearest, 1: linear, 3: cubic
+
+# Model ayarları
+model:
+  # Model tipi seçimi
+  # CNN: 'cnn3d_simple', 'resnet3d', 'densenet3d'
+  # GNN: 'gcn', 'gat', 'graphsage'
+  model_type: "resnet3d"
+  
+  # Genel ayarlar
+  num_classes: 2
+  in_channels: 1
+  dropout: 0.5
+  
+  # CNN-specific ayarlar
+  base_filters: 32  # CNN için base filter sayısı
+  num_blocks: [2, 2, 2, 2]  # ResNet için
+  growth_rate: 16  # DenseNet için
+  num_layers: [4, 4, 4, 4]  # DenseNet için
+  
+  # GNN-specific ayarlar
+  node_features: 4  # (x, y, z, intensity)
+  hidden_channels: 64
+  num_gnn_layers: 3
+  num_heads: 4  # GAT için
+
+# Eğitim ayarları
+training:
+  epochs: 100
+  batch_size: 32
+  num_workers: 0  # Windows'ta 0 olmalı (multiprocessing sorunu)
+  use_weighted_sampler: true  # Train set icin sinif dengeli ornekleme
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  optimizer: "adam"  # 'adam', 'adamw', 'sgd'
+  momentum: 0.9  # SGD için
+  
+  # Scheduler
+  scheduler: "cosine"  # 'step', 'cosine', 'plateau', null
+  step_size: 10  # StepLR için
+  gamma: 0.1  # StepLR için
+  
+  # Loss
+  loss_type: "cross_entropy"  # 'cross_entropy', 'focal'
+  use_class_weights: true
+  
+  # Mixed precision
+  use_amp: true
+  
+  # Checkpointing
+  save_dir: "checkpoints"
+  save_interval: 10
+  
+  # Best checkpoint metric
+  best_metric: "recall"  # acc, f1, recall, precision, f_beta, auc
+  best_metric_beta: 3.0
+
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 15
+    min_delta: 0.001
+
+
+# Hyperparameter optimization
+hpo:
+  enabled: true
+  method: "bayesian"  # 'bayesian' or 'grid'
+  metric: "f_beta"  # "accuracy", "f1", "auc", "f_beta"
+  n_trials: 100
+  num_epochs: 20
+  timeout: null  # seconds, null = no limit
+  n_jobs: 1
+  save_best_params: true
+  output_dir: "outputs/hyperparameter_optimization"
+  param_distributions:
+    learning_rate:
+      type: "float"
+      low: 1.0e-5
+      high: 5.0e-4
+      log: true
+    weight_decay:
+      type: "float"
+      low: 1.0e-6
+      high: 1.0e-3
+      log: true
+    dropout:
+      type: "float"
+      low: 0.2
+      high: 0.6
+    optimizer:
+      type: "categorical"
+      choices: ["adam", "adamw"]
+
+# Class weights (hesaplanacak veya manuel)
+class_weights:
+  auto: true  # Otomatik hesapla
+  use_in_loss: true  # Loss function'da kullan
+  manual:
+    normal: 0.4
+    anomaly: 2.5
+  # Dengeleme raporları
+  reports:
+    save_balance_report: true
+    balance_report_path: "outputs/class_balance_report.json"
+    save_distribution_plot: true
+    distribution_plot_path: "outputs/class_distribution.png"
+
+# Logging ve visualization
+logging:
+  log_dir: "logs"
+  tensorboard: true
+  save_plots: true
+  plot_dir: "outputs/plots"
+
+# Değerlendirme
+evaluation:
+  auto: true
+  test_set: "test"
+  checkpoint_name: "best_model.pth"
+  output_dir: "outputs/evaluation_test"
+  threshold:
+    strategy: "recall_at_precision"  # fixed, f_beta, recall_at_precision
+    beta: 3.0
+    min_precision: 0.2
+    selection_set: "dev"  # threshold selection set: dev/test
+    default: 0.5
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - auc
+    - confusion_matrix
+  save_predictions: true
+  predictions_dir: "outputs/predictions"
+
+# Random seed (reproducibility)
+seed: 42
+
+# Device
+device: "cuda"  # 'cuda' veya 'cpu'

@@ -1,0 +1,56 @@
+# NeAR Dataset - Kidney Anomaly Detection
+# Requirements
+
+# Core
+numpy>=1.21.0
+pandas>=1.3.0
+scikit-learn>=1.0.0
+scipy>=1.7.0
+
+# Class Balancing (SMOTE, ADASYN, etc.)
+imbalanced-learn>=0.10.0
+
+# Deep Learning - Model eğitimi için gerekli
+# NOTE: For RTX 5050 (sm_120), use PyTorch nightly:
+# pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Image Processing - 3D Medical Imaging
+# opencv-python>=4.5.0  # 2D görüntüler için
+# Pillow>=9.0.0  # 2D görüntüler için
+# albumentations>=1.3.0  # 2D augmentation için (kullanılmıyor)
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Utilities
+tqdm>=4.62.0
+pyyaml>=6.0
+tensorboard>=2.10.0
+
+# Hyperparameter Optimization
+optuna>=3.0.0  # Bayesian optimization
+plotly>=5.0.0  # Optuna visualizations
+
+# Medical Imaging
+# nibabel>=3.2.0  # NIfTI dosyaları için (şu an kullanılmıyor)
+
+# 3D Image Processing
+# SimpleITK>=2.1.0  # Alternatif medikal görüntü kütüphanesi
+# SimpleITK>=2.1.0
+# pydicom>=2.2.0
+
+# GNN Support (Graph Neural Networks için)
+torch-geometric>=2.3.0
+# Not: torch-geometric için ek paketler gerekebilir:
+# pip install pyg-lib torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl/torch-{version}+{cuda}.html
+
+# Development
+jupyter>=1.0.0
+ipython>=8.0.0
+pytest>=7.0.0
+black>=22.0.0
+flake8>=4.0.0
