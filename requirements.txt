@@ -12,10 +12,12 @@ imbalanced-learn>=0.10.0
 
 # Deep Learning - Model eğitimi için gerekli
 # NOTE: For RTX 5050 (sm_120), use PyTorch nightly:
-# pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
+# pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu121
 torch>=2.0.0
 torchvision>=0.15.0
-torchaudio>=2.0.0
+
+# Configuration validation
+pydantic>=2.0.0
 
 # Image Processing - 3D Medical Imaging
 # opencv-python>=4.5.0  # 2D görüntüler için
