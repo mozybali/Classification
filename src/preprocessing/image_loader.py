@@ -1,23 +1,23 @@
 """
 Görüntü Yükleme ve Veri Seti Yönetimi
-ZIP arşivinden 3D görüntü yükleme işlemleri
+ZIP arşivinden veya çıkarılmış klasörden 3D görüntü yükleme işlemleri
 """
 
 import numpy as np
 import zipfile
 import io
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional
 import pandas as pd
 
 
 class ImageLoader:
-    """ZIP arşivinden 3D görüntü yükleme"""
+    """ZIP arşivinden veya klasörden 3D görüntü yükleme"""
     
     def __init__(self, zip_path: str, cache_in_memory: bool = False):
         """
         Args:
-            zip_path: ZIP dosyası yolu
+            zip_path: ZIP dosyası yolu (veya çıkarılmış klasör yolu)
             cache_in_memory: Görüntüleri bellekte önbelleğe al
         """
         self.zip_path = Path(zip_path)
@@ -25,27 +25,78 @@ class ImageLoader:
         self.cache = {} if cache_in_memory else None
         # Lazy-open zip to keep the object picklable for DataLoader workers.
         self._zip_file = None
+        self.source_type, self.source_path = self._resolve_source(self.zip_path)
 
         # Dosya listesini al (kisa sureli ac, sonra kapat)
         self.available_files = self._build_index()
         
         
         
-        print(f"✓ ImageLoader başlatıldı: {len(self.available_files)} görüntü bulundu")
+        print(
+            f"✓ ImageLoader başlatıldı ({self.source_type}): "
+            f"{len(self.available_files)} görüntü bulundu"
+        )
+    
+    @staticmethod
+    def _has_npy_files(path: Path) -> bool:
+        """Directory contains at least one .npy file."""
+        if not path.is_dir():
+            return False
+        return any(path.rglob('*.npy'))
+
+    def _resolve_source(self, requested_path: Path):
+        """
+        Resolve source as either an existing ZIP file or an extracted directory.
+        Falls back to common extracted-directory conventions when ZIP is missing.
+        """
+        if requested_path.exists():
+            if requested_path.is_file() and requested_path.suffix.lower() == '.zip':
+                return 'zip', requested_path
+            if requested_path.is_dir() and self._has_npy_files(requested_path):
+                return 'dir', requested_path
+
+        candidates = []
+        if requested_path.suffix.lower() == '.zip':
+            candidates.append(requested_path.parent / f"{requested_path.stem}_extracted")
+            candidates.append(requested_path.parent / requested_path.stem)
+        candidates.append(requested_path.parent / 'ALAN_extracted')
+        candidates.append(requested_path.parent)
+
+        seen = set()
+        for candidate in candidates:
+            candidate_key = str(candidate.resolve()) if candidate.exists() else str(candidate)
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            if self._has_npy_files(candidate):
+                return 'dir', candidate
+
+        tried = ", ".join(str(c) for c in candidates)
+        raise FileNotFoundError(
+            f"Image source not found. Requested: {requested_path}. "
+            f"ZIP or extracted directory with .npy files is required. Tried: {tried}"
+        )
     
 
     def _build_index(self) -> Dict[str, str]:
-        """Build index of .npy files inside the zip."""
-        with zipfile.ZipFile(self.zip_path, 'r') as zf:
-            return {
-                Path(f).stem: f for f in zf.namelist()
-                if f.endswith('.npy')
-            }
+        """Build index of .npy files from zip or extracted directory."""
+        if self.source_type == 'zip':
+            with zipfile.ZipFile(self.source_path, 'r') as zf:
+                return {
+                    Path(f).stem: f for f in zf.namelist()
+                    if f.endswith('.npy')
+                }
+
+        file_index: Dict[str, str] = {}
+        for file_path in self.source_path.rglob('*.npy'):
+            # Keep the first match if duplicates exist.
+            file_index.setdefault(file_path.stem, str(file_path))
+        return file_index
 
     def _get_zip_file(self) -> zipfile.ZipFile:
         """Process-local lazy zip handle."""
         if self._zip_file is None:
-            self._zip_file = zipfile.ZipFile(self.zip_path, 'r')
+            self._zip_file = zipfile.ZipFile(self.source_path, 'r')
         return self._zip_file
 
     def load_image(self, roi_id: str) -> np.ndarray:
@@ -66,10 +117,13 @@ class ImageLoader:
         if roi_id not in self.available_files:
             raise ValueError(f"ROI {roi_id} bulunamadı!")
         
-        file_path = self.available_files[roi_id]
-        
-        with self._get_zip_file().open(file_path) as f:
-            image = np.load(io.BytesIO(f.read()))
+        file_ref = self.available_files[roi_id]
+
+        if self.source_type == 'zip':
+            with self._get_zip_file().open(file_ref) as f:
+                image = np.load(io.BytesIO(f.read()))
+        else:
+            image = np.load(file_ref)
         
         # Önbelleğe al
         if self.cache_in_memory:
@@ -138,7 +192,10 @@ class ImageLoader:
         return len(self.available_files)
     
     def __repr__(self):
-        return f"ImageLoader(zip_path={self.zip_path}, num_images={len(self)})"
+        return (
+            f"ImageLoader(source_type={self.source_type}, "
+            f"source_path={self.source_path}, num_images={len(self)})"
+        )
 
 
 class DatasetStatistics:

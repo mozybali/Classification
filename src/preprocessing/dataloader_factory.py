@@ -18,6 +18,38 @@ from .preprocess import ALANDataset, resolve_csv_path
 from .pipeline_builder import create_preprocessing_pipeline
 
 
+def _contains_npy_files(path: Path) -> bool:
+    return path.is_dir() and any(path.rglob('*.npy'))
+
+
+def resolve_image_source_path(dataset_config: Dict) -> Path:
+    """
+    Resolve image source path.
+    Priority:
+    1) Configured ZIP file
+    2) Common extracted directory names
+    3) Dataset root if it already contains .npy files
+    """
+    dataset_path = Path(dataset_config['path'])
+    zip_name = dataset_config.get('zip_file', 'ALAN.zip')
+    zip_path = dataset_path / zip_name
+
+    if zip_path.exists():
+        return zip_path
+
+    candidates = [
+        dataset_path / f"{Path(zip_name).stem}_extracted",
+        dataset_path / "ALAN_extracted",
+        dataset_path
+    ]
+    for candidate in candidates:
+        if _contains_npy_files(candidate):
+            return candidate
+
+    # Fall back to configured path for a clear downstream error message.
+    return zip_path
+
+
 class DataLoaderFactory:
     """DataLoader oluşturma factory'si"""
     
@@ -50,9 +82,8 @@ class DataLoaderFactory:
         training_config = config['training']
         preprocessing_config = config.get('preprocessing', {})
         
-        dataset_path = Path(dataset_config['path'])
         csv_path = resolve_csv_path(config)
-        zip_path = dataset_path / dataset_config['zip_file']
+        image_source_path = resolve_image_source_path(dataset_config)
         
         batch_size = training_config.get('batch_size', 32)
         if num_workers is None:
@@ -71,7 +102,7 @@ class DataLoaderFactory:
         
         train_dataset = ALANDataset(
             csv_path=str(csv_path),
-            zip_path=str(zip_path),
+            zip_path=str(image_source_path),
             subset='train',
             transform=pipelines['train'],
             load_images=preprocessing_config.get('load_images', True),
@@ -80,7 +111,7 @@ class DataLoaderFactory:
         
         val_dataset = ALANDataset(
             csv_path=str(csv_path),
-            zip_path=str(zip_path),
+            zip_path=str(image_source_path),
             subset='dev',  # dev = validation
             transform=pipelines['val'],
             load_images=preprocessing_config.get('load_images', True),
@@ -89,7 +120,7 @@ class DataLoaderFactory:
         
         test_dataset = ALANDataset(
             csv_path=str(csv_path),
-            zip_path=str(zip_path),
+            zip_path=str(image_source_path),
             subset='test',
             transform=pipelines['test'],
             load_images=preprocessing_config.get('load_images', True),
@@ -201,9 +232,8 @@ class DataLoaderFactory:
         training_config = config['training']
         preprocessing_config = config.get('preprocessing', {})
         
-        dataset_path = Path(dataset_config['path'])
         csv_path = resolve_csv_path(config)
-        zip_path = dataset_path / dataset_config['zip_file']
+        image_source_path = resolve_image_source_path(dataset_config)
         
         if batch_size is None:
             batch_size = training_config.get('batch_size', 32)
@@ -232,7 +262,7 @@ class DataLoaderFactory:
         # Dataset oluştur
         dataset = ALANDataset(
             csv_path=str(csv_path),
-            zip_path=str(zip_path),
+            zip_path=str(image_source_path),
             subset=subset,
             transform=transform,
             load_images=preprocessing_config.get('load_images', True),

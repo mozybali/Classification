@@ -456,7 +456,23 @@ def create_evaluation_report(
         pdf.savefig(fig)
         plt.close(fig)
 
-        # Page 3: Per-class metrics
+        # Page 3: Precision-Recall Curve (if available)
+        pr_curve = results.get('pr_curve', {})
+        pr_precision = pr_curve.get('precision')
+        pr_recall = pr_curve.get('recall')
+        if pr_precision and pr_recall:
+            ap = results['metrics'].get('pr_auc', 0.0)
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.plot(pr_recall, pr_precision, 'g-', linewidth=2, label=f'AP={ap:.4f}')
+            ax.set_xlabel('Recall')
+            ax.set_ylabel('Precision')
+            ax.set_title('Precision-Recall Curve')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            pdf.savefig(fig)
+            plt.close(fig)
+
+        # Page 4: Per-class metrics
         fig = TrainingVisualizer.plot_per_class_metrics(
             results['per_class_metrics'],
             return_fig=True,
@@ -466,7 +482,7 @@ def create_evaluation_report(
         pdf.savefig(fig)
         plt.close(fig)
 
-        # Page 4: Error distribution
+        # Page 5: Error distribution
         fig = ErrorAnalysisVisualizer.plot_error_distribution(
             results['predictions'],
             return_fig=True,
@@ -476,16 +492,38 @@ def create_evaluation_report(
         pdf.savefig(fig)
         plt.close(fig)
 
-        # Page 5: Threshold analysis
-        labels = np.array(results['predictions']['labels'])
-        probs = np.array(results['predictions']['probabilities'])
-        fig, _opt_thr, _max_f1 = ErrorAnalysisVisualizer.plot_threshold_analysis(
-            labels,
-            probs,
-            return_fig=True,
-            show=False,
-            close=False
-        )
+        # Page 6: Threshold analysis (use evaluator output if present)
+        threshold_curves = results.get('threshold_analysis', {}).get('curves', {})
+        if threshold_curves and threshold_curves.get('thresholds'):
+            thr_values = np.array(threshold_curves['thresholds'])
+            thr_precision = np.array(threshold_curves.get('precision', []))
+            thr_recall = np.array(threshold_curves.get('recall', []))
+            thr_f1 = np.array(threshold_curves.get('f1', []))
+            thr_f2 = np.array(threshold_curves.get('f2', []))
+            selected_thr = results.get('threshold', {}).get('value', 0.5)
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.plot(thr_values, thr_precision, linewidth=2, label='Precision')
+            ax.plot(thr_values, thr_recall, linewidth=2, label='Recall')
+            ax.plot(thr_values, thr_f1, linewidth=2, label='F1')
+            if thr_f2.size > 0:
+                ax.plot(thr_values, thr_f2, linewidth=2, label='F2')
+            ax.axvline(selected_thr, color='black', linestyle='--', linewidth=1, label=f'Selected={selected_thr:.3f}')
+            ax.set_xlabel('Threshold')
+            ax.set_ylabel('Score')
+            ax.set_title('Threshold Trade-off Analysis')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        else:
+            labels = np.array(results['predictions']['labels'])
+            probs = np.array(results['predictions']['probabilities'])
+            fig, _opt_thr, _max_f1 = ErrorAnalysisVisualizer.plot_threshold_analysis(
+                labels,
+                probs,
+                return_fig=True,
+                show=False,
+                close=False
+            )
         pdf.savefig(fig)
         plt.close(fig)
 

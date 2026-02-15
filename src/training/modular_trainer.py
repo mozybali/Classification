@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.cuda.amp import autocast, GradScaler
+from torch import amp
 from pathlib import Path
 import time
 from typing import Dict, Optional, Callable
@@ -83,7 +83,7 @@ class ModularTrainer:
         
         # Mixed precision - sadece desteklenen GPU'larda
         self.use_amp = config.get('use_amp', True) and self.device == 'cuda'
-        self.scaler = GradScaler() if self.use_amp else None
+        self.scaler = amp.GradScaler('cuda') if self.use_amp else None
         
         # Training state
         self.current_epoch = 0
@@ -203,7 +203,7 @@ class ModularTrainer:
             
             # Forward pass (with mixed precision)
             if self.use_amp:
-                with autocast():
+                with amp.autocast('cuda'):
                     outputs = self.model(images)
                     loss = self.criterion(outputs, labels)
                 
@@ -253,7 +253,7 @@ class ModularTrainer:
             
             # Forward pass
             if self.use_amp:
-                with autocast():
+                with amp.autocast('cuda'):
                     outputs = self.model(images)
                     loss = self.criterion(outputs, labels)
             else:

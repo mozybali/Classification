@@ -30,23 +30,41 @@ def resolve_csv_path(config: Dict) -> Path:
     dataset_path = Path(dataset_cfg.get('path', ''))
     csv_file = dataset_cfg.get('csv_file', 'info.csv')
 
-    if dataset_cfg.get('use_processed', False):
-        processed_csv = dataset_cfg.get('processed_csv')
-        if processed_csv:
-            proc_path = Path(processed_csv)
-            if not proc_path.is_absolute():
-                # First try project root relative
-                proc_path = Path(processed_csv)
-                if not proc_path.exists():
-                    # Fallback: relative to dataset path
-                    proc_path = dataset_path / processed_csv
-            if proc_path.exists():
-                print(f"✅ Processed CSV kullanılıyor: {proc_path}")
-                return proc_path
-            else:
-                print(f"⚠️  Processed CSV bulunamadı, orijinale dönülüyor: {processed_csv}")
+    if not dataset_cfg.get('use_processed', False):
+        return dataset_path / csv_file
 
-    return dataset_path / csv_file
+    processed_csv = dataset_cfg.get('processed_csv')
+    if not processed_csv:
+        return dataset_path / csv_file
+
+    candidates = [Path(processed_csv)]
+    balanced_csv = (
+        config.get('preprocessing', {})
+        .get('class_balancing', {})
+        .get('balanced_data_path')
+    )
+    if balanced_csv and str(balanced_csv) != str(processed_csv):
+        candidates.append(Path(balanced_csv))
+
+    tried_paths: List[Path] = []
+    for candidate in candidates:
+        resolved_paths = [candidate]
+        if not candidate.is_absolute():
+            resolved_paths.append(dataset_path / candidate)
+
+        for candidate_path in resolved_paths:
+            tried_paths.append(candidate_path)
+            if candidate_path.exists():
+                print(f"Processed CSV kullaniliyor: {candidate_path}")
+                return candidate_path
+
+    # Processed file is missing. Fall back to original and avoid repeated warnings.
+    dataset_cfg['use_processed'] = False
+    config['dataset'] = dataset_cfg
+    tried_msg = ", ".join(str(path) for path in tried_paths)
+    original_csv = dataset_path / csv_file
+    print(f"Processed CSV bulunamadi ({tried_msg}), orijinal CSV kullaniliyor: {original_csv}")
+    return original_csv
 
 
 class ALANDataset(Dataset if TORCH_AVAILABLE else object):
@@ -224,21 +242,22 @@ class DataPreprocessor:
     
     def extract_zip_if_needed(self):
         """ZIP dosyalarını gerekirse extract eder"""
-        zip_file = self.dataset_path / 'ALAN.zip'
-        
-        if zip_file.exists():
-            extract_dir = self.dataset_path / 'ALAN_extracted'
-            if not extract_dir.exists():
-                print(f"📦 ZIP dosyası extract ediliyor...")
-                with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-                    zip_ref.extractall(extract_dir)
-                print(f"✓ Extract tamamlandı: {extract_dir}")
-            else:
-                print(f"✓ Veriler zaten extract edilmiş: {extract_dir}")
+        zip_file = self.zip_path
+        extract_dir = self.dataset_path / f"{zip_file.stem}_extracted"
+
+        if extract_dir.exists():
+            print(f"✓ Veriler zaten extract edilmiş: {extract_dir}")
             return extract_dir
-        else:
-            print(f"⚠️  ALAN.zip bulunamadı: {zip_file}")
-            return None
+
+        if zip_file.exists():
+            print(f"📦 ZIP dosyası extract ediliyor...")
+            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            print(f"✓ Extract tamamlandı: {extract_dir}")
+            return extract_dir
+
+        print(f"⚠️  ZIP bulunamadı, extract klasörü de yok: {zip_file}")
+        return None
     
     def _normalize_subset_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalize subset values to expected ZS-* names when needed."""
@@ -542,3 +561,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

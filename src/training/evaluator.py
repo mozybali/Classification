@@ -13,7 +13,9 @@ import numpy as np
 from sklearn.metrics import (
     accuracy_score, precision_recall_fscore_support,
     roc_auc_score, roc_curve, confusion_matrix,
-    classification_report, matthews_corrcoef
+    classification_report, matthews_corrcoef,
+    average_precision_score, precision_recall_curve,
+    balanced_accuracy_score
 )
 import json
 import matplotlib.pyplot as plt
@@ -137,6 +139,15 @@ class ModelEvaluator:
 
         print("\nROC curve hesaplanıyor...")
         fpr, tpr, thresholds = roc_curve(all_labels, all_probs)
+        pr_precision, pr_recall, pr_thresholds = precision_recall_curve(all_labels, all_probs)
+
+        print("\nThreshold analizi hesaplanıyor...")
+        threshold_analysis = self._calculate_threshold_analysis(
+            labels=all_labels,
+            probs=all_probs,
+            selected_threshold=threshold_value,
+            min_precision=min_precision
+        )
 
         self.results = {
             'metrics': metrics,
@@ -147,6 +158,12 @@ class ModelEvaluator:
                 'tpr': tpr.tolist(),
                 'thresholds': thresholds.tolist()
             },
+            'pr_curve': {
+                'precision': pr_precision.tolist(),
+                'recall': pr_recall.tolist(),
+                'thresholds': pr_thresholds.tolist()
+            },
+            'threshold_analysis': threshold_analysis,
             'predictions': {
                 'roi_ids': all_roi_ids,
                 'labels': all_labels.tolist(),
@@ -237,6 +254,18 @@ class ModelEvaluator:
         except Exception:
             auc = 0.0
 
+        try:
+            pr_auc = average_precision_score(labels, probs)
+        except Exception:
+            pr_auc = 0.0
+
+        try:
+            balanced_acc = balanced_accuracy_score(labels, preds)
+        except Exception:
+            balanced_acc = 0.0
+
+        f2_b = self._f_beta_score(precision_b, recall_b, beta=2.0)
+
         mcc = matthews_corrcoef(labels, preds)
 
         tn, fp, fn, tp = confusion_matrix(labels, preds).ravel()
@@ -251,7 +280,10 @@ class ModelEvaluator:
             'precision_binary': float(precision_b),
             'recall_binary': float(recall_b),
             'f1_binary': float(f1_b),
+            'f2_binary': float(f2_b),
             'auc_roc': float(auc),
+            'pr_auc': float(pr_auc),
+            'balanced_accuracy': float(balanced_acc),
             'mcc': float(mcc),
             'sensitivity': float(sensitivity),
             'specificity': float(specificity),
@@ -259,6 +291,95 @@ class ModelEvaluator:
             'tn': int(tn),
             'fp': int(fp),
             'fn': int(fn)
+        }
+
+    @staticmethod
+    def _f_beta_score(precision: float, recall: float, beta: float) -> float:
+        """Compute F-beta score from precision and recall."""
+        beta2 = beta ** 2
+        denom = beta2 * precision + recall
+        if denom <= 0:
+            return 0.0
+        return float((1 + beta2) * precision * recall / denom)
+
+    def _calculate_threshold_analysis(
+        self,
+        labels: np.ndarray,
+        probs: np.ndarray,
+        selected_threshold: float,
+        min_precision: Optional[float] = None
+    ) -> Dict:
+        """
+        Evaluate precision/recall/F1/F2 and balanced accuracy over thresholds.
+        Includes best-threshold summaries for quick model selection.
+        """
+        thresholds = np.linspace(0.0, 1.0, 101)
+        precision_scores = []
+        recall_scores = []
+        f1_scores = []
+        f2_scores = []
+        balanced_acc_scores = []
+
+        best_f1 = {'threshold': 0.5, 'score': -1.0, 'precision': 0.0, 'recall': 0.0}
+        best_f2 = {'threshold': 0.5, 'score': -1.0, 'precision': 0.0, 'recall': 0.0}
+        best_recall_at_precision = None
+
+        for thr in thresholds:
+            preds = (probs >= thr).astype(int)
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                labels, preds, average='binary', zero_division=0, pos_label=1
+            )
+            f2 = self._f_beta_score(float(precision), float(recall), beta=2.0)
+            bal_acc = balanced_accuracy_score(labels, preds)
+
+            precision_scores.append(float(precision))
+            recall_scores.append(float(recall))
+            f1_scores.append(float(f1))
+            f2_scores.append(float(f2))
+            balanced_acc_scores.append(float(bal_acc))
+
+            if f1 > best_f1['score']:
+                best_f1 = {
+                    'threshold': float(thr),
+                    'score': float(f1),
+                    'precision': float(precision),
+                    'recall': float(recall)
+                }
+
+            if f2 > best_f2['score']:
+                best_f2 = {
+                    'threshold': float(thr),
+                    'score': float(f2),
+                    'precision': float(precision),
+                    'recall': float(recall)
+                }
+
+            if min_precision is not None and precision >= min_precision:
+                if best_recall_at_precision is None or recall > best_recall_at_precision['recall']:
+                    best_recall_at_precision = {
+                        'threshold': float(thr),
+                        'precision': float(precision),
+                        'recall': float(recall),
+                        'f1': float(f1),
+                        'f2': float(f2)
+                    }
+
+        return {
+            'curves': {
+                'thresholds': thresholds.tolist(),
+                'precision': precision_scores,
+                'recall': recall_scores,
+                'f1': f1_scores,
+                'f2': f2_scores,
+                'balanced_accuracy': balanced_acc_scores
+            },
+            'summary': {
+                'selected_threshold': float(selected_threshold),
+                'best_f1': best_f1,
+                'best_f2': best_f2,
+                'best_recall_at_min_precision': best_recall_at_precision,
+                'min_precision_constraint': None if min_precision is None else float(min_precision)
+            }
         }
 
     def _calculate_per_class_metrics(
@@ -307,6 +428,8 @@ class ModelEvaluator:
         print(f"  Recall (w):      {metrics['recall_weighted']:.4f}")
         print(f"  F1-Score (w):    {metrics['f1_weighted']:.4f}")
         print(f"  AUC-ROC:         {metrics['auc_roc']:.4f}")
+        print(f"  PR-AUC:          {metrics['pr_auc']:.4f}")
+        print(f"  Balanced Acc:    {metrics['balanced_accuracy']:.4f}")
         print(f"  MCC:             {metrics['mcc']:.4f}")
         print(f"  Sensitivity:     {metrics['sensitivity']:.4f}")
         print(f"  Specificity:     {metrics['specificity']:.4f}")
@@ -315,6 +438,7 @@ class ModelEvaluator:
         print(f"  Precision:       {metrics['precision_binary']:.4f}")
         print(f"  Recall:          {metrics['recall_binary']:.4f}")
         print(f"  F1-Score:        {metrics['f1_binary']:.4f}")
+        print(f"  F2-Score:        {metrics['f2_binary']:.4f}")
 
         print("\nConfusion Matrix:")
         print(f"  TP (True Positive):  {metrics['tp']}")
@@ -340,7 +464,8 @@ class ModelEvaluator:
             json.dump({
                 'metrics': self.results['metrics'],
                 'per_class_metrics': self.results['per_class_metrics'],
-                'threshold': self.results.get('threshold')
+                'threshold': self.results.get('threshold'),
+                'threshold_analysis_summary': self.results.get('threshold_analysis', {}).get('summary')
             }, f, indent=2)
         print(f"Metrics saved: {metrics_path}")
 
@@ -354,12 +479,24 @@ class ModelEvaluator:
         report = classification_report(
             labels, preds,
             target_names=['Normal', 'Anomaly'],
-            digits=4
+            digits=4,
+            zero_division=0
+        )
+        report += (
+            "\n\nAdditional Analysis\n"
+            f"PR-AUC: {self.results['metrics'].get('pr_auc', 0.0):.4f}\n"
+            f"Balanced Accuracy: {self.results['metrics'].get('balanced_accuracy', 0.0):.4f}\n"
+            f"F2-Score (Anomaly): {self.results['metrics'].get('f2_binary', 0.0):.4f}\n"
         )
         report_path = save_dir / 'classification_report.txt'
         with open(report_path, 'w') as f:
             f.write(report)
         print(f"Classification report saved: {report_path}")
+
+        threshold_path = save_dir / 'threshold_analysis.json'
+        with open(threshold_path, 'w') as f:
+            json.dump(self.results.get('threshold_analysis', {}), f, indent=2)
+        print(f"Threshold analysis saved: {threshold_path}")
 
     def _save_plots(
         self,
@@ -396,6 +533,52 @@ class ModelEvaluator:
         plt.savefig(roc_path, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"ROC curve saved: {roc_path}")
+
+        pr_curve = self.results.get('pr_curve', {})
+        pr_precisions = np.array(pr_curve.get('precision', []))
+        pr_recalls = np.array(pr_curve.get('recall', []))
+        if pr_precisions.size > 0 and pr_recalls.size > 0:
+            plt.figure(figsize=(8, 6))
+            plt.plot(
+                pr_recalls,
+                pr_precisions,
+                'g-',
+                linewidth=2,
+                label=f"AP = {self.results['metrics'].get('pr_auc', 0.0):.4f}"
+            )
+            plt.xlabel('Recall')
+            plt.ylabel('Precision')
+            plt.title('Precision-Recall Curve')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            pr_path = save_dir / 'pr_curve.png'
+            plt.savefig(pr_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"PR curve saved: {pr_path}")
+
+        threshold_curves = self.results.get('threshold_analysis', {}).get('curves', {})
+        thr_values = np.array(threshold_curves.get('thresholds', []))
+        thr_prec = np.array(threshold_curves.get('precision', []))
+        thr_rec = np.array(threshold_curves.get('recall', []))
+        thr_f1 = np.array(threshold_curves.get('f1', []))
+        thr_f2 = np.array(threshold_curves.get('f2', []))
+        if thr_values.size > 0:
+            plt.figure(figsize=(10, 6))
+            plt.plot(thr_values, thr_prec, label='Precision', linewidth=2)
+            plt.plot(thr_values, thr_rec, label='Recall', linewidth=2)
+            plt.plot(thr_values, thr_f1, label='F1', linewidth=2)
+            plt.plot(thr_values, thr_f2, label='F2', linewidth=2)
+            selected_thr = self.results.get('threshold', {}).get('value', 0.5)
+            plt.axvline(selected_thr, color='black', linestyle='--', linewidth=1, label=f'Selected={selected_thr:.3f}')
+            plt.xlabel('Threshold')
+            plt.ylabel('Score')
+            plt.title('Threshold Trade-off Analysis')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            thr_path = save_dir / 'threshold_tradeoff.png'
+            plt.savefig(thr_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"Threshold trade-off plot saved: {thr_path}")
 
     def compare_models(
         self,

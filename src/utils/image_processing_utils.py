@@ -13,14 +13,15 @@ def compute_image_statistics(config):
     print("="*70)
     
     from src.preprocessing.image_loader import ImageLoader, DatasetStatistics, save_statistics_report
+    from src.preprocessing.dataloader_factory import resolve_image_source_path
     
     dataset_path = Path(config['dataset']['path'])
-    zip_path = dataset_path / config['dataset']['zip_file']
+    image_source_path = resolve_image_source_path(config['dataset'])
     csv_path = dataset_path / config['dataset']['csv_file']
     
     # Image loader
     print("\n📦 Görüntü yükleyici başlatılıyor...")
-    loader = ImageLoader(str(zip_path), cache_in_memory=False)
+    loader = ImageLoader(str(image_source_path), cache_in_memory=False)
     
     # Statistics calculator
     stats_calc = DatasetStatistics(loader, str(csv_path))
@@ -74,15 +75,16 @@ def test_image_transforms(config):
 
     from src.preprocessing.image_loader import ImageLoader
     from src.preprocessing.pipeline_builder import create_preprocessing_pipeline
+    from src.preprocessing.dataloader_factory import resolve_image_source_path
 
     dataset_path = Path(config['dataset']['path'])
     csv_path = dataset_path / config['dataset']['csv_file']
-    zip_path = dataset_path / config['dataset']['zip_file']
+    image_source_path = resolve_image_source_path(config['dataset'])
 
-    if not csv_path.exists() or not zip_path.exists():
+    if not csv_path.exists() or not image_source_path.exists():
         print("Dataset files not found.")
         print(f"CSV: {csv_path}")
-        print(f"ZIP: {zip_path}")
+        print(f"Image source: {image_source_path}")
         return
 
     df = pd.read_csv(csv_path)
@@ -98,7 +100,7 @@ def test_image_transforms(config):
     sample_count = min(3, len(df))
     sample_ids = df['ROI_id'].sample(sample_count, random_state=42).tolist()
 
-    loader = ImageLoader(str(zip_path), cache_in_memory=False)
+    loader = ImageLoader(str(image_source_path), cache_in_memory=False)
 
     def summarize(name: str, arr: np.ndarray):
         arr = np.asarray(arr)

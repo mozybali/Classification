@@ -9,7 +9,7 @@ dataset:
   zip_file: "ALAN.zip"
   image_size: [128, 128, 128]  # 3D görüntü boyutu
   channels: 1  # Binary mask (tek kanal)
-  use_processed: true  # İşlenmiş CSV kullan
+  use_processed: false  # İşlenmiş CSV kullan
   processed_csv: "outputs/processed_data.csv"  # Alternatif: outputs/balanced_data.csv
   
   # NaN handling - Eksik veri işleme stratejileri
@@ -86,12 +86,12 @@ preprocessing:
   
   # Class balancing - Sınıf dengesizliği yönetimi
   class_balancing:
-    enabled: false  # Otomatik dengeleme aktif mi?
-    method: "none"  # 'none', 'oversample', 'undersample', 'smote', 'adasyn', 'smote_tomek'
-    target_ratio: 1.0  # Hedef denge oranı (1.0 = mükemmel denge)
+    enabled: true  # Otomatik dengeleme aktif mi?
+    method: "oversample"  # 'none', 'oversample', 'undersample', 'smote', 'adasyn', 'smote_tomek'
+    target_ratio: "auto"  # Hedef denge oranı (1.0 = mükemmel denge)
     smote_k_neighbors: 5  # SMOTE için k_neighbors
     apply_to_minority_only: true  # Sadece azınlık sınıfına mı uygula?
-    save_balanced_data: false  # Dengelenmiş veriyi kaydet?
+    save_balanced_data: true  # Dengelenmiş veriyi kaydet?
     balanced_data_path: "outputs/balanced_data.csv"
   
   # Augmentation strategy - Veri arttırma stratejisi
@@ -157,7 +157,7 @@ model:
 
 # Eğitim ayarları
 training:
-  epochs: 100
+  epochs: 200
   batch_size: 32
   num_workers: 0  # Windows'ta 0 olmalı (multiprocessing sorunu)
   use_weighted_sampler: true  # Train set icin sinif dengeli ornekleme
@@ -183,13 +183,13 @@ training:
   save_interval: 10
   
   # Best checkpoint metric
-  best_metric: "recall"  # acc, f1, recall, precision, f_beta, auc
-  best_metric_beta: 3.0
+  best_metric: "f_beta"  # acc, f1, recall, precision, f_beta, auc
+  best_metric_beta: 2.0
 
   # Early stopping
   early_stopping:
     enabled: true
-    patience: 15
+    patience: 20
     min_delta: 0.001
 
 
@@ -198,8 +198,8 @@ hpo:
   enabled: true
   method: "bayesian"  # 'bayesian' or 'grid'
   metric: "f_beta"  # "accuracy", "f1", "auc", "f_beta"
-  n_trials: 100
-  num_epochs: 20
+  n_trials: 10
+  num_epochs: 10
   timeout: null  # seconds, null = no limit
   n_jobs: 1
   save_best_params: true
@@ -251,9 +251,9 @@ evaluation:
   checkpoint_name: "best_model.pth"
   output_dir: "outputs/evaluation_test"
   threshold:
-    strategy: "recall_at_precision"  # fixed, f_beta, recall_at_precision
-    beta: 3.0
-    min_precision: 0.2
+    strategy: "fixed"  # fixed, f_beta, recall_at_precision
+    beta: 1.0
+    min_precision: 0.5
     selection_set: "dev"  # threshold selection set: dev/test
     default: 0.5
   metrics:
@@ -271,3 +271,4 @@ seed: 42
 
 # Device
 device: "cuda"  # 'cuda' veya 'cpu'
+
