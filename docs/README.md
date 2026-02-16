@@ -139,8 +139,3 @@ Run tests with:
 ```bash
 python -m pytest tests -v
 ```
-
-## Privacy and Content Policy
-
-This README intentionally avoids project-specific private details.
-Use generic placeholders for dataset locations, identifiers, and external endpoints when sharing publicly.
